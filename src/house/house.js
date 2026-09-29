@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MeshBVH } from 'three-mesh-bvh';
 import { SPEC, FLOAT, ALIVE, setAlive, allBrickKeys } from './sdf.js';
 import { createHouseMaterial, createDeformDepthMaterial } from '../render/houseMaterial.js';
 import { familyState, packState } from '../render/families.js';
@@ -28,6 +29,13 @@ export class Spring1 {
     const n = Math.ceil(dt / (1 / 240)), h = dt / n;
     for (let i = 0; i < n; i++) { this.v += (this.k * (this.target - this.x) - this.c * this.v) * h; this.x += this.v * h; }
   }
+}
+
+// a mesh from a worker comes with its raycast tree already built
+function withTree(g, d) {
+  if (d.bvh) g.boundsTree = MeshBVH.deserialize({ version: 1, roots: d.bvh.roots, index: g.index.array }, g, { setIndex: false });
+  else g.computeBoundsTree?.();
+  return g;
 }
 
 export function toGeometry(m) {
@@ -129,6 +137,9 @@ export class House {
     for (const name of ['live', 'noFacade', 'coreOnly']) {
       const g = new THREE.Group();
       g.visible = name === 'live';
+      // a hidden brick set (hundreds of bricks, each with its pre-pass and
+      // shells) skips the per-frame matrix walk; showConfig refreshes it
+      g.updateMatrixWorld = function (force) { if (this.visible) THREE.Group.prototype.updateMatrixWorld.call(this, force); };
       this.container.add(g);
       this.sets[name] = { group: g, bricks: new Map(), gen: new Map(), ready: false };
     }
@@ -272,8 +283,7 @@ export class House {
   _onMessage(d) {
     if (d.type === 'skin') { this._skinDone?.(d); return; }
     if (d.type === 'clump') {
-      const g = d.m ? toGeometry(d.m) : null;
-      if (g) g.computeBoundsTree?.();
+      const g = d.m ? withTree(toGeometry(d.m), d) : null;
       this.clumpGeo.set(d.id, g);
       for (const r of this.clumpWait.get(d.id) || []) r(g);
       this.clumpWait.delete(d.id);
@@ -285,14 +295,15 @@ export class House {
     if (fresh) {
       let mesh = set.bricks.get(d.key);
       if (d.m) {
-        const g = toGeometry(d.m);
-        g.computeBoundsTree?.();
+        const g = withTree(toGeometry(d.m), d);
         if (!mesh) {
           mesh = new THREE.Mesh(g, this.bodyMat);
+          mesh.matrixAutoUpdate = false; // bricks sit at the set's origin
           mesh.castShadow = true;
           mesh.receiveShadow = true;
           mesh.customDepthMaterial = this.bodyDepth;
           const pre = new THREE.Mesh(g, this.bodyPre);
+          pre.matrixAutoUpdate = false;
           pre.renderOrder = -1;
           pre.raycast = () => {};
           mesh.add(pre);
@@ -304,7 +315,7 @@ export class House {
         } else {
           const old = mesh.geometry;
           mesh.geometry = g;
-          for (const c of mesh.children) c.geometry = g; // fuzz shells share it
+          for (const c of mesh.children) { c.geometry = g; if (c.isInstancedMesh) c.boundingSphere = null; } // fuzz shells share it
           old.disposeBoundsTree?.();
           old.dispose();
         }
@@ -324,6 +335,8 @@ export class House {
   showConfig(name) {
     for (const [k, s] of Object.entries(this.sets)) s.group.visible = k === name;
     this.config = name;
+    // (its matrices were left alone while it was hidden)
+    this.sets[name].group.updateMatrixWorld(true);
   }
 
   update(dt) {

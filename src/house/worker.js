@@ -1,3 +1,5 @@
+import { BufferGeometry, BufferAttribute } from 'three';
+import { MeshBVH } from 'three-mesh-bvh';
 import { meshPart } from './mesher.js';
 import { buildVariant, setAlive, useConfig, brickPart, clumpPart, groupPart, sodPart, sceneSDF, bakeSkinDepth } from './sdf.js';
 
@@ -7,9 +9,18 @@ import { buildVariant, setAlive, useConfig, brickPart, clumpPart, groupPart, sod
 
 let cell = 0.06;
 
+// the raycast tree (BVH) of every mesh is built here too, in parallel, and
+// sent ready: on the main thread it took ~0.2 s at start and a hitch at
+// every tear (bricks re-meshed round the hole)
 const send = (msg, m) => {
   if (!m) { self.postMessage(msg); return; }
-  self.postMessage({ ...msg, m }, [m.index.buffer, m.position.buffer, m.normal.buffer, m.bake.buffer, m.bake2.buffer]);
+  const g = new BufferGeometry();
+  g.setIndex(new BufferAttribute(m.index, 1));
+  g.setAttribute('position', new BufferAttribute(m.position, 3));
+  // (the tree orders the index in place: m.index is that ordered index)
+  const bvh = MeshBVH.serialize(new MeshBVH(g), { cloneBuffers: false });
+  m.index = bvh.index;
+  self.postMessage({ ...msg, m, bvh: { roots: bvh.roots } }, [m.index.buffer, m.position.buffer, m.normal.buffer, m.bake.buffer, m.bake2.buffer, ...bvh.roots]);
 };
 
 self.onmessage = (e) => {

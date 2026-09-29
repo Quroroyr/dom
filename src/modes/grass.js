@@ -202,13 +202,17 @@ class Debris {
     this.setList = Object.entries(this.sets).map(([kind, v]) => ({ kind, ...v })); // (for the per-frame loop)
     this.alive = 0;
     this.cool = 0;
+    // share of each burst actually thrown (quality tier); a bit of sod always flies
+    this.budget = 1;
     this.hitN = 0; this.hitAt = new THREE.Vector3(); this.hitV = 0;
     this.onHits = null;
   }
 
   // at: world point; dir: the way the burst is thrown; mix: how many of each kind
   burst(at, dir, mix, spread, speed) {
-    for (const [kind, count] of Object.entries(mix)) {
+    for (const [kind, full] of Object.entries(mix)) {
+      const want = kind === 'sod' ? full : full * this.budget;
+      const count = Math.floor(want) + (Math.random() < want % 1 ? 1 : 0);
       const set = this.sets[kind], K = set.K;
       for (let n = 0; n < count; n++) {
         // round-robin: when the pool is full the oldest goes first
@@ -627,7 +631,13 @@ export function createWorld() {
       ctx.scene.remove(roots, rim); roots.geometry.dispose(); rim.material.dispose();
       pollen.visible = false;
     },
+    // the quality tier: how much crumb a tear throws, how many motes drift
+    onQuality(p) {
+      debris.budget = p.particles;
+      pollen.geometry.setDrawRange(0, Math.round(pollen.geometry.attributes.position.count * p.pollen));
+    },
     activate(ctx) {
+      this.onQuality(ctx.quality.profile);
       pollen.visible = true;
       pollen.userData.leaving = false;
       ctx.shared.uOrig.value = depthTex;

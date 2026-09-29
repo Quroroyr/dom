@@ -18,14 +18,9 @@ import { Interaction } from './interaction.js';
 import { Story, POSES, SCENES, MATERIALS } from './story.js';
 import { UI } from './ui.js';
 import { MaterialAudio } from './audio/audio.js';
+import { Quality, PROFILES, TIERS } from './quality.js';
 
 const params = new URLSearchParams(location.search);
-const coarse = matchMedia('(pointer: coarse)').matches;
-const small = Math.min(innerWidth, innerHeight) < 700;
-const LOW = coarse || small || params.has('low');
-const NO_ADAPT = params.has('noadapt');
-// the page's panels drop their live blur where the frame budget is tight
-document.body.classList.toggle('is-low', LOW);
 
 // ---------------------------------------------------------------------------
 // when the house cannot be drawn: a still of it and what to do, instead of an
@@ -72,10 +67,29 @@ renderer.toneMappingExposure = 1.12;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.VSMShadowMap;
-const MAX_DPR = LOW ? 1.25 : Math.min(devicePixelRatio, 1.75);
-let dpr = MAX_DPR;
+// the sun's shadow is drawn when something that casts it moved (see loop)
+renderer.shadowMap.autoUpdate = false;
+renderer.shadowMap.needsUpdate = true;
+
+// quality tier (quality.js): a first guess now, then frame time decides.
+// ?quality=ultra|high|medium|low|safe fixes it; auto (default) adapts;
+// ?noadapt keeps the first guess; ?low is the old switch for low
+const Q = new Quality({
+  gl: renderer.getContext(),
+  param: params.get('quality') || (params.has('low') ? 'low' : null),
+  apply: (p, tier) => applyQuality(p, tier),
+});
+if (params.has('noadapt')) Q.auto = false;
+const BOOT_TIER = Q.tier;
+const LIGHT_BOOT = TIERS.indexOf(BOOT_TIER) <= TIERS.indexOf('low');
+// never softer than one pixel per CSS pixel: a tier caps a dense screen's
+// ratio, it does not blur a plain one
+const tierDpr = (p) => Math.min(devicePixelRatio, Math.max(p.dpr, 1));
+let dpr = tierDpr(Q.profile);
 renderer.setPixelRatio(dpr);
 renderer.setSize(innerWidth, innerHeight, false);
+document.body.classList.toggle('is-low', !Q.profile.glass);
+document.body.dataset.tier = Q.tier;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 220);
@@ -97,17 +111,17 @@ const sun = new THREE.DirectionalLight(atm.sunColor, atm.sunIntensity);
 sun.position.copy(SUN_DIR).multiplyScalar(24).add(new THREE.Vector3(0, 2, 0));
 sun.target.position.set(0.3, 2, 0);
 sun.castShadow = true;
-sun.shadow.mapSize.set(LOW ? 1024 : 2048, LOW ? 1024 : 2048);
+sun.shadow.mapSize.set(Q.profile.shadowMap, Q.profile.shadowMap);
 const sc = sun.shadow.camera;
 sc.left = -10; sc.right = 10; sc.top = 10; sc.bottom = -10; sc.near = 4; sc.far = 50;
 sun.shadow.radius = 9;
-sun.shadow.blurSamples = 14;
+sun.shadow.blurSamples = Q.profile.shadowBlur;
 sun.shadow.bias = -0.0004;
 scene.add(sun, sun.target);
 const hemi = new THREE.HemisphereLight('#d9e3ef', '#efe3d4', 0.18);
 scene.add(hemi);
 
-const contact = createContactShadow(renderer, { size: 20, res: LOW ? 256 : 512, height: 10, blur: 3.6 });
+const contact = createContactShadow(renderer, { size: 20, res: Q.profile.contactRes, height: 10, blur: 3.6 });
 const floor = createFloor(atm, contact);
 scene.add(floor);
 const dim = background.material.uniforms.uDim;
@@ -142,6 +156,11 @@ const shared = {
   uCloudDim: { value: 1 },
   uFuzzScale: { value: 1 },
   uFuzzCut: { value: 0 },
+  // blade length on a light tier: fewer shells stand closer together, so
+  // the grass becomes a shorter, denser turf instead of stepped tall blades
+  uBladeLen: { value: 1 },
+  // the finest noise octave of cotton / of blades (a light tier leaves it out)
+  uFuzzDetail: { value: new THREE.Vector2(1, 1) },
   // breeze through standing fuzz (xz direction, strength, gust); set by the material world
   uWind: { value: new THREE.Vector4(0.8, 0.45, 0, 0) },
   // depth under the untouched skin (house frame); a world that needs it
@@ -184,6 +203,10 @@ const rig = new CameraRig(camera);
   mq.addEventListener('change', () => { rig.reduce = mq.matches; });
 }
 const post = createPost(renderer, scene, camera);
+post.setQuality(Q.profile);
+PaintVolume.interval = 1 / Q.profile.paintHz;
+// draw calls and triangles are counted per frame (all passes), not per render call
+renderer.info.autoReset = false;
 // sound listens to the physics; silent until the visitor's first gesture
 const sound = new MaterialAudio({ camera });
 const veil = document.querySelector('.veil');
@@ -215,12 +238,15 @@ async function boot() {
   const fontReady = document.fonts.load('300 200px "Fraunces Variable"').catch(() => {});
   WORLDS[0].load().catch(() => {});
   const t0 = performance.now();
-  house = new House(shared, LOW ? 0.085 : 0.065);
+  // (the mesh is built once: a light first tier gets the coarser one)
+  house = new House(shared, LIGHT_BOOT ? 0.085 : 0.065);
   // the camera keeps its distance from the cloud surface (house frame)
   rig.clearance = (x, y, z) => bodyFs(x - house.group.position.x, y - house.group.position.y, z - house.group.position.z);
   fluffBody = makeFluffMaterial(house.body, shared);
   house.onBrick = (mesh) => attachFluff(mesh, fluffBody);
-  house.startWorkers(Math.max(2, Math.min(navigator.hardwareConcurrency || 4, 8) - 1));
+  // leave the page and the browser two cores (one on a small CPU)
+  const cores = navigator.hardwareConcurrency || 4;
+  house.startWorkers(Math.max(1, Math.min(7, cores >= 6 ? cores - 2 : cores - 1)));
   scene.add(house.group);
   // quiet interior light: a warm pendant, soft and short-ranged (added before
   // the programs are built: the light count is part of every program)
@@ -254,14 +280,14 @@ async function boot() {
     whenReady: (k) => readyWait[k] || Promise.resolve(),
   });
   // material worlds: only the default one is loaded now; others on demand
-  // a world asks for its layer count; phones draw half
-  const setFuzzLayers = (n) => setFluffLayers(LOW ? Math.ceil(n / 2) : n);
+  // a world asks for its layer count; the quality tier sets the ceiling
+  // (soft cotton and standing blades have their own)
   setFuzzLayers(8);
   const setFuzzSolid = (on) => setFluffSolid(on, shared);
   // level of detail for the shells (a world with tall fuzz turns it on)
-  const setFuzzLod = (on) => { setFluffLod(on); for (const pc of tearing.pieces) pc.lod = null; };
+  const setFuzzLod = (on) => { fuzzLodOn = on; setFluffLod(on); applyFuzz(); for (const pc of tearing.pieces) pc.lod = null; };
   const onDebris = (...a) => sound.debris(...a);
-  worlds = new Worlds({ scene, renderer, camera, shared, house, tearing, paint, setFuzzLayers, setFuzzSolid, setFuzzLod, onDebris });
+  worlds = new Worlds({ scene, renderer, camera, shared, house, tearing, paint, setFuzzLayers, setFuzzSolid, setFuzzLod, onDebris, quality: Q });
   // a world may answer a tear or a landing (turf throws soil and blades);
   // the sound hears the same events
   tearing.onTear = (p) => { worlds.active?.onTear?.(p); sound.tear(p); };
@@ -288,6 +314,7 @@ async function boot() {
     try {
       const w = await worlds.load(id);
       if (token !== worldToken) return;
+      Q.settle(2);
       worlds.switchTo(w);
       story.setWorld(w);
       sound.setWorld(id);
@@ -302,7 +329,7 @@ async function boot() {
     }
   };
   story.init();
-  ui.onScene = (id) => story.go(id);
+  ui.onScene = (id) => { Q.settle(); story.go(id); };
   ui.onPick = (v) => story.pick(v);
   ui.onStep = (dir) => story.step(dir);
   ui.onReassemble = () => story.reassemble();
@@ -509,25 +536,40 @@ function resize() {
 }
 addEventListener('resize', resize);
 
-let acc = 0, frames = 0, cooldown = 0;
-function adapt(dt) {
-  if (NO_ADAPT) return; // ?noadapt: fixed quality (for measuring)
-  acc += dt; frames++;
-  cooldown -= dt;
-  if (frames < 45) return;
-  const avg = acc / frames;
-  acc = 0; frames = 0;
-  if (cooldown > 0) return;
-  let next = dpr;
-  if (avg > 1 / 42 && dpr > 1.0) next = Math.max(1.0, dpr - 0.2);
-  else if (avg < 1 / 75 && dpr < MAX_DPR) next = Math.min(MAX_DPR, dpr + 0.1);
-  if (next !== dpr) { dpr = next; resize(); cooldown = 2; return; }
-  // quality tier: once the pixel ratio is at its floor and frames are still
-  // slow, tall fuzz gets fewer shells (two at a time); it earns them back
-  // when there is plenty of headroom. Slow cooldowns: no back-and-forth.
-  const q = fuzzLodState();
-  if (q.on && avg > 1 / 40 && dpr <= 1.0 && q.cap > 6) { setFuzzCap(Math.min(q.cap, q.max) - 2); cooldown = 4; }
-  else if (q.on && avg < 1 / 70 && q.cap < 12) { setFuzzCap(q.cap + 2); cooldown = 6; }
+// ---------------------------------------------------------------------------
+// quality: every scalable system takes its budget from the active profile
+
+let fuzzWant = 8, fuzzLodOn = false;
+function setFuzzLayers(n) { fuzzWant = n; applyFuzz(); }
+function applyFuzz() {
+  const p = Q.profile;
+  // standing blades (level of detail on) and soft cotton have their own ceilings
+  const cap = fuzzLodOn ? p.blades : p.cotton;
+  setFluffLayers(Math.min(fuzzWant, cap));
+  setFuzzCap(p.blades, p.pieceBlades);
+  shared.uBladeLen.value = p.bladeLen;
+  shared.uFuzzDetail.value.set(p.cottonDetail ? 1 : 0, p.bladeDetail ? 1 : 0);
+}
+
+function applyQuality(p, tier) {
+  document.body.classList.toggle('is-low', !p.glass);
+  document.body.dataset.tier = tier;
+  const nd = tierDpr(p);
+  if (nd !== dpr) { dpr = nd; resize(); }
+  post.setQuality(p);
+  if (sun.shadow.mapSize.x !== p.shadowMap) {
+    sun.shadow.mapSize.set(p.shadowMap, p.shadowMap);
+    sun.shadow.map?.dispose(); sun.shadow.map = null;
+    sun.shadow.mapPass?.dispose(); sun.shadow.mapPass = null;
+  }
+  sun.shadow.blurSamples = p.shadowBlur;
+  renderer.shadowMap.needsUpdate = true;
+  contact.setRes(p.contactRes);
+  contactStill = false;
+  PaintVolume.interval = 1 / p.paintHz;
+  applyFuzz();
+  worlds?.active?.onQuality?.(p);
+  console.info(`[cloud-house] quality ${tier} (${Q.reason})`);
 }
 
 const clock = new THREE.Timer();
@@ -537,11 +579,16 @@ let contactTick = 0, contactStill = false, contactRenders = 0;
 let frameTick = 0;
 const actions = { r: null, v: null };
 
+let sunTick = 0, sunStill = false;
 function loop() {
   requestAnimationFrame(loop);
   if (document.hidden) return;
+  const tLoop = performance.now();
   clock.update();
-  const dt = Math.min(clock.getDelta(), 1 / 20);
+  // (the real interval goes to the quality meter; the simulation steps at most 50 ms)
+  const rawDt = clock.getDelta();
+  const dt = Math.min(rawDt, 1 / 20);
+  renderer.info.reset();
   const t = clock.getElapsed();
   shared.uTime.value = t;
 
@@ -562,7 +609,7 @@ function loop() {
   interaction.frame(dt);
   tearing.update(dt, t, camera);
   sound.update(dt);
-  paint.flush(t);
+  paint.flush(t, renderer);
   worlds?.update(dt, t);
   flowers?.update(worlds?.active?.id === 'grass');
   if (fluffBody) {
@@ -592,24 +639,54 @@ function loop() {
   // drawn one last time and then left alone until something changes
   const b = house.body;
   const moving = interaction.mode !== 'idle' || story.tl?.isActive() || tearing.anyMoving() || b.press.x > 0.002 || b.rippleAge >= 0 || b.pullVec.x.lengthSq() > 1e-4;
+  const P = Q.profile;
   contactTick -= dt;
   if (moving) contactStill = false;
   if (moving ? contactTick <= 0 : !contactStill) {
     contact.render(scene, 1 << 1);
-    contactTick = 0.05;
+    contactTick = 1 / P.contactHz;
     contactStill = !moving;
     contactRenders++;
   }
+  // the sun's shadow map: the same rule (at the tier's rate while things
+  // move, once more when they stop), plus a slow refresh for anything that
+  // changes the body quietly (a material wave, a settling wound, breathing)
+  sunTick -= dt;
+  const shaping = moving || !!b.morph || b.drops.length > 0;
+  if (shaping) sunStill = false;
+  if ((shaping && sunTick <= 0) || (!shaping && !sunStill) || sunTick < -0.5) {
+    renderer.shadowMap.needsUpdate = true;
+    sunTick = 1 / P.shadowHz;
+    sunStill = !shaping;
+  }
 
+  Q.beginGpu();
   post.render(t);
-  adapt(dt);
+  Q.endGpu();
+  Q.frame(rawDt, performance.now() - tLoop);
 }
 
 window.__ch = {
   get house() { return house; }, get story() { return story; }, get flowers() { return flowers; }, get worlds() { return worlds; }, get tearing() { return tearing; }, get interaction() { return interaction; },
   rig, camera, scene, renderer, post, atm, shared, gsap, THREE, CLUMPS, SPEC, FLOAT, clumpAt, bodyFs, fluffShellCount, paint, sound,
-  get contactRenders() { return contactRenders; }, fuzzLodState,
+  get contactRenders() { return contactRenders; }, fuzzLodState, contact, sun, quality: Q, PROFILES, TIERS,
+  // QA: fix a tier now (auto is paused until a reload)
+  setTier(t) { Q.auto = false; Q.force(t); return Q.status(); },
+  // the numbers the QA report needs, in one object
+  perf() {
+    const gl = renderer.getContext(), info = renderer.info, p = Q.profile, fz = fuzzLodState();
+    return {
+      ...Q.status(), dpr: renderer.getPixelRatio(), buffer: `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`,
+      shells: { body: fz.on ? fz.body : fz.max, cap: fz.cap, pieceCap: fz.pieceCap, cotton: p.cotton },
+      shadow: { map: sun.shadow.mapSize.x, blur: sun.shadow.blurSamples, hz: p.shadowHz, contactRes: p.contactRes, contactHz: p.contactHz },
+      post: { msaa: post.samples, bloom: post.bloom.enabled ? p.bloom : 0, dofTaps: p.dofTaps, dofRest: p.dofRest },
+      pieces: tearing?.pieces.length ?? 0, free: tearing?.freeCount() ?? 0, sleeping: tearing?.pieces.filter((pc) => pc.sleeping).length ?? 0,
+      calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length, geometries: info.memory.geometries, textures: info.memory.textures,
+    };
+  },
 };
+// the QA overlay (?perf): numbers, a benchmark and a copyable report
+if (params.has('perf')) import('./perf-hud.js').then((m) => m.mountPerfHud(window.__ch)).catch((e) => console.warn('[cloud-house] perf hud', e));
 
 removeEventListener('error', onSetupError);
 boot().catch((err) => fail('error', err));

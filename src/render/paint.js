@@ -105,7 +105,7 @@ export class PaintVolume {
       }
       touched++;
     }
-    if (touched) this.dirty = true;
+    if (touched) this.touchZ(k0, k1);
   }
 
   // trilinear read at a point of this volume's frame → [r, g, b, a] 0..255
@@ -142,16 +142,38 @@ export class PaintVolume {
 
   clear() { this.data.fill(0); this.tex.needsUpdate = true; this.dirty = false; }
 
-  // upload at most ~20 times a second while painting
-  flush(now) {
-    if (!this.dirty || now - this.lastUpload < 0.05) return;
-    this.tex.needsUpdate = true;
+  // upload at most ~20 times a second while painting (the quality tier may
+  // space it out). Only the slabs the new dabs touched go to the GPU: a
+  // stroke rewrites a few layers of the volume, not all 1.8 MB of it.
+  flush(now, renderer) {
+    if (!this.dirty || now - this.lastUpload < PaintVolume.interval) return;
     this.dirty = false;
     this.lastUpload = now;
+    const z = this.zDirty;
+    this.zDirty = null;
+    const t = renderer && z && renderer.properties.get(this.tex).__webglTexture;
+    if (!t) { this.tex.needsUpdate = true; return; }
+    const gl = renderer.getContext();
+    const [rx, ry] = this.res;
+    const k0 = z[0], n = z[1] - z[0] + 1;
+    renderer.state.bindTexture(gl.TEXTURE_3D, t);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+    gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, k0, rx, ry, n, gl.RGBA, gl.UNSIGNED_BYTE, this.data, k0 * rx * ry * 4);
+  }
+  // layers k0..k1 changed on the CPU side (uploaded with the next flush)
+  touchZ(k0, k1) {
+    this.dirty = true;
+    if (!this.zDirty) this.zDirty = [k0, k1];
+    else { this.zDirty[0] = Math.min(this.zDirty[0], k0); this.zDirty[1] = Math.max(this.zDirty[1], k1); }
   }
 
   dispose() { this.disposed = true; this.tex.dispose(); }
 }
+
+PaintVolume.interval = 0.05;
 
 // ---------------------------------------------------------------------------
 // History and ownership.
@@ -298,9 +320,9 @@ export class PaintManager {
     for (const x of this.extras) x.clear();
     this._changed();
   }
-  flush(now) {
-    this.house.flush(now);
-    for (const v of this.pieces) v.flush(now);
+  flush(now, renderer) {
+    this.house.flush(now, renderer);
+    for (const v of this.pieces) v.flush(now, renderer);
   }
   _changed() {
     let has = this.house.hasPaint() || this.extras.some((x) => x.count() > 0);

@@ -493,7 +493,7 @@ export class Tearing {
     // the world may have changed again, or the piece gone, while it meshed
     if (!geo || !this.pieces.includes(pc) || (this.sod ? 'sod' : 'clump') !== want || pc.shape === want) return;
     pc.mesh.geometry = geo;
-    for (const c of pc.mesh.children) if (c.isInstancedMesh) c.geometry = geo; // its fuzz shells
+    for (const c of pc.mesh.children) if (c.isInstancedMesh) { c.geometry = geo; c.boundingSphere = null; } // its fuzz shells
     pc.shape = want;
     if (want === 'sod') {
       pc.sod = true;
@@ -1220,15 +1220,27 @@ export class Tearing {
         pc.still = (pc.still || 0) + dt;
         if (pc.still > (pc.grounded ? 0.6 : 0.8)) { pc.sleeping = true; pc.vel.set(0, 0, 0); pc.spin.set(0, 0, 0); pc.part.stretch.target = 0; }
       } else pc.still = 0;
+      // a piece that keeps a little speed but goes nowhere (a sod propped on
+      // another, the two nudging each other by millimetres) settles too:
+      // under 4 cm and ~3.5° in 2 s is at rest to the eye
+      if (!pc.hold && this.physics.ground && !pc.sleeping) {
+        const r = pc.rest || (pc.rest = { p: pc.mesh.position.clone(), q: pc.mesh.quaternion.clone(), t: 0 });
+        if (r.p.distanceToSquared(pc.mesh.position) > 0.0016 || r.q.angleTo(pc.mesh.quaternion) > 0.06) {
+          r.p.copy(pc.mesh.position); r.q.copy(pc.mesh.quaternion); r.t = 0;
+        } else if ((r.t += dt) > 2) {
+          pc.sleeping = true; pc.vel.set(0, 0, 0); pc.spin.set(0, 0, 0); pc.part.stretch.target = 0; r.t = 0;
+        }
+      } else if (pc.rest) pc.rest.t = 0;
     }
     this._hitPieces(dt);
   }
 
   meshes(out = []) { for (const p of this.pieces) if (p.state === 'free') out.push(p.mesh); return out; }
-  // anything that moves the ground shadow: a piece awake, flying home, in a
-  // hand, or a choreography piece (they move with the scene's timeline)
+  // anything that moves the ground shadow: a piece awake, flying home or in a
+  // hand. (Choreography pieces move only with the scene's timeline, which
+  // the caller checks: at rest they are as still as the house.)
   anyMoving() {
-    for (const pc of this.pieces) if (pc.state !== 'free' || !pc.sleeping) return true;
+    for (const pc of this.pieces) if (pc.state === 'free' ? !pc.sleeping : pc.state !== 'choreo') return true;
     return false;
   }
 }

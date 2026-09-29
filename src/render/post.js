@@ -7,6 +7,8 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 // Final grade: depth-of-field (cheap gather on the depth buffer), gentle
 // vignette, milk haze lift, and fine grain. DOF is only on for macro shots.
+// The quality tier sets the multisampling, bloom and how many taps the
+// depth blur gathers (see quality.js).
 
 const FinalShader = {
   uniforms: {
@@ -16,6 +18,7 @@ const FinalShader = {
     uTime: { value: 0 },
     uFocus: { value: 10 },   // metres
     uAperture: { value: 0 }, // 0 = off
+    uTaps: { value: 28 },     // gather taps (quality tier; up to 28)
     uNear: { value: 0.1 },
     uFar: { value: 200 },
     uVignette: { value: 0.22 },
@@ -28,21 +31,22 @@ const FinalShader = {
     #include <packing>
     varying vec2 vUv;
     uniform sampler2D tDiffuse, tDepth;
-    uniform vec2 uRes; uniform float uTime, uFocus, uAperture, uNear, uFar, uVignette, uGrain, uLiftAmt;
+    uniform vec2 uRes; uniform float uTime, uFocus, uAperture, uNear, uFar, uVignette, uGrain, uLiftAmt, uTaps;
     uniform vec3 uLift;
     float linDepth(vec2 uv){ float d = texture2D(tDepth, uv).x; return perspectiveDepthToViewZ(d, uNear, uFar) * -1.0; }
     float coc(float z){ return clamp(abs(z - uFocus) / max(z, 0.001) * uAperture, 0.0, 1.0); }
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){
       vec4 col = texture2D(tDiffuse, vUv);
-      if (uAperture > 0.0001) {
-        float z = linDepth(vUv);
-        float c = coc(z);
+      // (a pixel in focus keeps its colour exactly: its gather is skipped)
+      float c = uAperture > 0.0001 ? coc(linDepth(vUv)) : 0.0;
+      if (c > 0.02) {
         vec3 acc = col.rgb; float w = 1.0;
         const int N = 28;
         float ga = 2.39996323;
         for (int i = 1; i < N; i++) {
-          float r = sqrt(float(i) / float(N));
+          if (float(i) >= uTaps) break;
+          float r = sqrt(float(i) / uTaps);
           float a = float(i) * ga;
           vec2 o = vec2(cos(a), sin(a)) * r * 16.0 / uRes;
           vec2 uv2 = vUv + o * c * 1.4;
@@ -61,16 +65,21 @@ const FinalShader = {
     }`,
 };
 
-export function createPost(renderer, scene, camera) {
+function sceneTarget(renderer, samples) {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const depthTex = new THREE.DepthTexture(size.x, size.y);
   depthTex.type = THREE.UnsignedIntType;
-  const target = new THREE.WebGLRenderTarget(size.x, size.y, {
+  return new THREE.WebGLRenderTarget(size.x, size.y, {
     type: THREE.HalfFloatType,
     depthTexture: depthTex,
-    samples: 4,
+    samples,
   });
-  const composer = new EffectComposer(renderer, target);
+}
+
+export function createPost(renderer, scene, camera) {
+  let samples = 4;
+  const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+  const composer = new EffectComposer(renderer, sceneTarget(renderer, samples));
   const renderPass = new RenderPass(scene, camera);
   composer.addPass(renderPass);
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.14, 0.55, 0.92);
@@ -81,18 +90,48 @@ export function createPost(renderer, scene, camera) {
   composer.addPass(final);
   composer.addPass(new OutputPass());
 
+  // the depth blur at rest (the small aperture after the arrival) can be
+  // left out on a light tier; the wide one of the arrival always plays
+  let dofRest = true;
+  // bloom resolution relative to the buffer (1: as three builds it)
+  let bloomScale = 1;
+  const size2 = new THREE.Vector2();
+  const sizeBloom = () => {
+    renderer.getDrawingBufferSize(size2);
+    bloom.setSize(Math.max(2, Math.round(size2.x * bloomScale)), Math.max(2, Math.round(size2.y * bloomScale)));
+  };
+
   return {
     composer, bloom, final,
+    get samples() { return samples; },
+    setQuality(p) {
+      if (p.msaa !== samples) {
+        // new targets with the other sample count (a sample count cannot
+        // change on a live multisampled target)
+        samples = p.msaa;
+        composer.reset(sceneTarget(renderer, samples));
+        final.uniforms.tDepth.value = composer.renderTarget2.depthTexture;
+      }
+      bloom.enabled = p.bloom > 0;
+      if (p.bloom > 0 && p.bloom !== bloomScale) { bloomScale = p.bloom; sizeBloom(); }
+      final.uniforms.uTaps.value = p.dofTaps;
+      dofRest = p.dofRest;
+    },
     setSize(w, h, dpr) {
       composer.setPixelRatio(dpr);
       composer.setSize(w, h);
+      if (bloomScale !== 1) sizeBloom();
       final.uniforms.uRes.value.set(w * dpr, h * dpr);
     },
     render(time) {
       final.uniforms.uTime.value = time;
       final.uniforms.uNear.value = camera.near;
       final.uniforms.uFar.value = camera.far;
+      const ap = final.uniforms.uAperture;
+      const want = ap.value;
+      if (!dofRest && want < 0.2) ap.value = 0;
       composer.render();
+      ap.value = want;
     },
   };
 }

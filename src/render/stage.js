@@ -142,6 +142,9 @@ export function createContactShadow(renderer, { size = 16, res = 512, height = 7
   const qScene = new THREE.Scene();
   qScene.add(quad);
   const qCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  // the blur is set in the shadow's own units (as at 512 px), so a lighter
+  // tier's smaller target keeps the same softness
+  const BLUR_REF = 512;
   const hBlur = new THREE.ShaderMaterial(HorizontalBlurShader);
   const vBlur = new THREE.ShaderMaterial(VerticalBlurShader);
   hBlur.depthTest = vBlur.depthTest = false;
@@ -163,12 +166,12 @@ export function createContactShadow(renderer, { size = 16, res = 512, height = 7
     const pass = (amount) => {
       quad.material = hBlur;
       hBlur.uniforms.tDiffuse.value = rtA.texture;
-      hBlur.uniforms.h.value = amount / res;
+      hBlur.uniforms.h.value = amount / BLUR_REF;
       renderer.setRenderTarget(rtB);
       renderer.render(qScene, qCam);
       quad.material = vBlur;
       vBlur.uniforms.tDiffuse.value = rtB.texture;
-      vBlur.uniforms.v.value = amount / res;
+      vBlur.uniforms.v.value = amount / BLUR_REF;
       renderer.setRenderTarget(rtA);
       renderer.render(qScene, qCam);
     };
@@ -177,7 +180,13 @@ export function createContactShadow(renderer, { size = 16, res = 512, height = 7
     renderer.setRenderTarget(prevTarget);
     renderer.setClearAlpha(prevClear);
   }
-  return { texture: rtA.texture, render, size, center: new THREE.Vector2(cam.position.x, cam.position.z) };
+  function setRes(r) {
+    if (r === res) return;
+    res = r;
+    rtA.setSize(r, r);
+    rtB.setSize(r, r);
+  }
+  return { texture: rtA.texture, render, setRes, size, center: new THREE.Vector2(cam.position.x, cam.position.z) };
 }
 
 // ---------------------------------------------------------------------------

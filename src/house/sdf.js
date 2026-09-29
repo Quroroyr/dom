@@ -249,8 +249,12 @@ export function tornIn(config) {
   return CLUMPS.filter((c) => c.ids.some((i) => m[i]) && c.ids.every((i) => !ALIVE[i])).map((c) => c.id);
 }
 export function setAlive(ids, alive) {
-  for (const i of ids) ALIVE[i] = alive ? 1 : 0;
-  GRIDS.live = buildGrid(ALIVE);
+  const changed = [];
+  for (const i of ids) { if (ALIVE[i] !== (alive ? 1 : 0)) changed.push(i); ALIVE[i] = alive ? 1 : 0; }
+  // only the cells a torn (or returning) puff reaches are recomputed: the
+  // whole grid took ~0.1 s, on the main thread, at every tear
+  if (GRIDS.live) updateGrid(GRIDS.live, ALIVE, changed);
+  else GRIDS.live = buildGrid(ALIVE);
   // a choreography state is its own layout AND what is still in the house
   for (const k of Object.keys(GRIDS)) if (k !== 'live' && k !== 'whole') delete GRIDS[k];
   if (!FIELD_MASK) G = GRIDS.live;
@@ -290,29 +294,60 @@ function buildGrid(mask) {
   const lists = new Array(n[0] * n[1] * n[2]);
   const lower = new Float32Array(lists.length);
   const upper = new Float32Array(lists.length);
-  const half = CELL * 0.866;
+  const g = { lo, hi, n, lists, lower, upper };
+  const alive = aliveOf(mask);
+  const dc = new Float32Array(alive.length);
+  for (let kz = 0; kz < n[2]; kz++) for (let j = 0; j < n[1]; j++) for (let i = 0; i < n[0]; i++) gridCell(g, alive, dc, i, j, kz);
+  return g;
+}
+const HALF = CELL * 0.866;
+function aliveOf(mask) {
   const alive = [];
   SPHERES.forEach((s, i) => { if (!mask || mask[i]) alive.push(i); });
+  return alive;
+}
+// one cell: the nearest puffs, and bounds of the field over the cell
+function gridCell(g, alive, dc, i, j, kz) {
+  const { lo, n } = g;
+  const cx = lo[0] + (i + 0.5) * CELL, cy = lo[1] + (j + 0.5) * CELL, cz = lo[2] + (kz + 0.5) * CELL;
+  let best = 1e9, up = 1e9;
+  for (let q = 0; q < alive.length; q++) {
+    const s = SPHERES[alive[q]];
+    const c = len3(cx - s.x, cy - s.y, cz - s.z);
+    const d = c - s.R;
+    dc[q] = d;
+    if (d < best) best = d;
+    if (c - s.rmin < up) up = c - s.rmin;
+  }
+  const list = [];
+  for (let q = 0; q < alive.length; q++) if (dc[q] < best + HALF * 2 + SPHERES[alive[q]].k + 0.05) list.push(alive[q]);
+  const id = i + n[0] * (j + n[1] * kz);
+  g.lists[id] = Int32Array.from(list);
+  g.lower[id] = alive.length ? best - HALF : 1e3;
+  g.upper[id] = alive.length ? up + HALF : 1e3;
+}
+// after puffs left or came back: recompute exactly the cells they touch.
+// A puff that left mattered to a cell if it was on its list or set its upper
+// bound; one that came back matters where it would join the list, lower the
+// nearest distance or the upper bound. Every other cell is unchanged — the
+// result is the same grid a full rebuild gives.
+function updateGrid(g, mask, changed) {
+  if (!changed.length) return;
+  const { lo, n, lists, lower, upper } = g;
+  const alive = aliveOf(mask);
   const dc = new Float32Array(alive.length);
   for (let kz = 0; kz < n[2]; kz++) for (let j = 0; j < n[1]; j++) for (let i = 0; i < n[0]; i++) {
-    const cx = lo[0] + (i + 0.5) * CELL, cy = lo[1] + (j + 0.5) * CELL, cz = lo[2] + (kz + 0.5) * CELL;
-    let best = 1e9, up = 1e9;
-    for (let q = 0; q < alive.length; q++) {
-      const s = SPHERES[alive[q]];
-      const c = len3(cx - s.x, cy - s.y, cz - s.z);
-      const d = c - s.R;
-      dc[q] = d;
-      if (d < best) best = d;
-      if (c - s.rmin < up) up = c - s.rmin;
-    }
-    const list = [];
-    for (let q = 0; q < alive.length; q++) if (dc[q] < best + half * 2 + SPHERES[alive[q]].k + 0.05) list.push(alive[q]);
     const id = i + n[0] * (j + n[1] * kz);
-    lists[id] = Int32Array.from(list);
-    lower[id] = alive.length ? best - half : 1e3;
-    upper[id] = alive.length ? up + half : 1e3;
+    const cx = lo[0] + (i + 0.5) * CELL, cy = lo[1] + (j + 0.5) * CELL, cz = lo[2] + (kz + 0.5) * CELL;
+    let hit = false;
+    for (let q = 0; q < changed.length && !hit; q++) {
+      const si = changed[q], s = SPHERES[si];
+      const c = len3(cx - s.x, cy - s.y, cz - s.z);
+      if (mask[si]) hit = c - s.R < lower[id] + HALF * 3 + s.k + 0.05 + 1e-4 || c - s.rmin < upper[id] - HALF + 1e-4;
+      else hit = lists[id].includes(si) || c - s.rmin <= upper[id] - HALF + 1e-4;
+    }
+    if (hit) gridCell(g, alive, dc, i, j, kz);
   }
-  return { lo, hi, n, lists, lower, upper };
 }
 
 // distance to a puff; squashed puffs use the ellipsoid approximation, which
@@ -611,3 +646,6 @@ export function clumpAt(x, y, z) {
 }
 
 buildVariant();
+
+// (tests: the live grid as updated, and the same grid built from scratch)
+export const gridsForTest = () => ({ inc: GRIDS.live, full: buildGrid(ALIVE) });

@@ -17,6 +17,7 @@ ${DEFORM_PARS}
 attribute vec4 bake;
 attribute vec4 bake2;
 uniform float uFuzzScale;
+uniform float uBladeLen;
 uniform float uLayers;
 uniform vec4 uFzA;
 uniform vec4 uFzB;
@@ -44,6 +45,7 @@ void main(){
   float fz = mix(uFzA.x, uFzB.x, w) * uFuzzScale * (1.0 - smoothstep(0.0, 0.15, bake2.z));
   vec3 p = chDeform(position, normal);
   float g = mix(uFzA.w, uFzB.w, w);
+  fz *= mix(1.0, uBladeLen, g);
   // tall grass is cropped short round windows and doors so they stay open
   float nearOpen = mod(floor(bake2.w * 255.0 + 0.5), 20.0) / 19.0;
   fz *= 1.0 - smoothstep(0.15, 0.85, nearOpen) * 0.88 * g;
@@ -109,6 +111,7 @@ const fragment = /* glsl */ `
 ${NOISE_GLSL}
 ${EARTH_GLSL}
 uniform float uFuzzCut;
+uniform vec2 uFuzzDetail; // cotton, blades: 0 leaves the finest noise octave out (light tiers)
 uniform float uLayers;
 uniform vec3 uColorA;
 uniform vec3 uColorB;
@@ -153,9 +156,10 @@ void main(){
   if (!grass) {
     // cotton clumps with finer fibres (finer for sugar, looser for mist)
     float f = 0.5 + 0.5 * snoise(vObj * vec3(11.0, 6.0, 11.0) * fine);
-    f = f * 0.6 + (0.5 + 0.5 * snoise(vObj * 30.0 * fine + 3.1)) * 0.4;
+    f = f * 0.6 + (uFuzzDetail.x > 0.5 ? 0.5 + 0.5 * snoise(vObj * 30.0 * fine + 3.1) : 0.5) * 0.4;
     float th = mix(0.42, 0.86, vLayer) + dither * 0.09;
-    a = smoothstep(th, th + 0.12, f) * (1.0 - vLayer * 0.8);
+    float few = max(1.0, 8.0 / uLayers);
+    a = smoothstep(th, th + 0.12 * few, f) * (1.0 - vLayer * 0.8) * sqrt(few);
     a *= mix(0.12, 1.2, fres) * min(density, 1.3) * (1.0 - smoothstep(0.0, 0.1, vBake2.z));
   } else {
     // a shell seen from well behind (the far side of a bulge) is hidden by
@@ -164,7 +168,7 @@ void main(){
     // blades: cells of a noise field, gathered into tufts; the cut-off rises
     // with height, so every blade tapers to a point
     vec3 bp = pH * 24.0 * fine;
-    float b = (0.5 + 0.5 * snoise(bp)) * 0.72 + (0.5 + 0.5 * snoise(bp * 2.3 + 5.3)) * 0.28;
+    float b = (0.5 + 0.5 * snoise(bp)) * 0.72 + (uFuzzDetail.y > 0.5 ? 0.5 + 0.5 * snoise(bp * 2.3 + 5.3) : 0.5) * 0.28;
     b *= mix(0.8, 1.12, 0.5 + 0.5 * vSlow.x);
     float gth = mix(0.34, 0.8, vLayer) + dither * 0.04;
     // fewer shells (LOD): each blade a little wider, so the turf keeps its cover
@@ -233,6 +237,8 @@ export function makeFluffMaterial(part, shared) {
       uColorA: { value: A.color }, uColorB: { value: B.color },
       uFuzzScale: shared.uFuzzScale,
       uFuzzCut: shared.uFuzzCut,
+      uBladeLen: shared.uBladeLen,
+      uFuzzDetail: shared.uFuzzDetail,
       uLayers: { value: FLUFF_LAYERS },
       uCloudLit: shared.uCloudLit, uCloudShadow: shared.uCloudShadow, uCloudRim: shared.uCloudRim,
       uSunDirV: shared.uSunDirV, uAoMix: shared.uAoMix, uAoPart: u.uAoPart, uCloudDim: shared.uCloudDim, uSunFree: part.mat.userData.uniforms.uSunFree,
@@ -261,7 +267,11 @@ export function attachFluff(mesh, mat, layers) {
   const I = new THREE.Matrix4();
   for (let i = 0; i < FLUFF_MAX; i++) shell.setMatrixAt(i, I);
   shell.count = layers;
-  shell.frustumCulled = false;
+  // culled with its brick's bounds, grown by the most the shells ever reach
+  // out (blade length, a leaning pull, a sagging rim): a brick behind the
+  // camera (inside the room) draws no fuzz
+  shell.computeBoundingSphere = shellBounds;
+  shell.matrixAutoUpdate = false; // always at its brick's origin
   shell.renderOrder = 2;
   shell.raycast = () => {};
   mesh.add(shell);
@@ -283,6 +293,14 @@ export function detachFluff(mesh) {
   }
 }
 export const fluffShellCount = () => SHELLS.size;
+const SHELL_PAD = 1.5;
+function shellBounds() {
+  const g = this.geometry;
+  if (!g.boundingSphere) g.computeBoundingSphere();
+  if (!this.boundingSphere) this.boundingSphere = new THREE.Sphere();
+  this.boundingSphere.copy(g.boundingSphere);
+  this.boundingSphere.radius += SHELL_PAD;
+}
 
 // grass blades as solid cut-outs that write depth (turf world) or soft,
 // blended fuzz (cotton): set by the world once its material wave is done
@@ -302,7 +320,7 @@ export function setFuzzSolid(on, shared) {
 // piece far off or small on screen draws fewer). Steps are one layer at a
 // time, at most every 0.2 s, with ±0.75 layer of slack: no flicker.
 const LOD_PX = 2.0, LOD_MIN = 3;
-let lodOn = false, lodCap = FLUFF_MAX, lodBodyMat = null;
+let lodOn = false, lodCap = FLUFF_MAX, pieceCap = FLUFF_MAX, lodBodyMat = null;
 const bodyLod = { n: 0, t: 0 };
 const _wp = new THREE.Vector3();
 export function setFuzzLod(on) {
@@ -310,15 +328,19 @@ export function setFuzzLod(on) {
   bodyLod.n = 0;
   if (!on) setFuzzLayers(layersNow);
 }
-export function setFuzzCap(n) { lodCap = Math.max(LOD_MIN, Math.min(FLUFF_MAX, n)); }
-export const fuzzLodState = () => ({ on: lodOn, body: bodyLod.n, cap: lodCap, max: layersNow });
+// the quality tier's ceilings: the body's shells and (lower) a loose piece's
+export function setFuzzCap(n, piece = n) {
+  lodCap = Math.max(1, Math.min(FLUFF_MAX, n));
+  pieceCap = Math.max(1, Math.min(lodCap, piece));
+}
+export const fuzzLodState = () => ({ on: lodOn, body: bodyLod.n, cap: lodCap, pieceCap, max: layersNow });
 function lodStep(st, target, max, dt) {
   st.t -= dt;
-  if (!st.n) { st.n = Math.round(target); return true; }
+  if (!st.n) { st.n = Math.max(1, Math.min(max, Math.round(target))); return true; }
   if (st.n > max) { st.n = max; return true; }
   if (st.t > 0) return false;
   if (target > st.n + 0.75 && st.n < max) { st.n++; st.t = 0.2; return true; }
-  if (target < st.n - 0.75 && st.n > LOD_MIN) { st.n--; st.t = 0.2; return true; }
+  if (target < st.n - 0.75 && st.n > Math.min(LOD_MIN, max)) { st.n--; st.t = 0.2; return true; }
   return false;
 }
 export function updateFuzzLod(dt, camera, heightPx, blade, bodyMat, bodyCenter, pieces) {
@@ -326,15 +348,16 @@ export function updateFuzzLod(dt, camera, heightPx, blade, bodyMat, bodyCenter, 
   lodBodyMat = bodyMat;
   const max = Math.min(layersNow, lodCap);
   const k = blade * heightPx / (2 * Math.tan(camera.fov * Math.PI / 360)) / LOD_PX;
-  const target = (d) => Math.max(LOD_MIN, Math.min(max, k / Math.max(d, 0.5)));
+  const target = (d, m = max) => Math.max(Math.min(LOD_MIN, m), Math.min(m, k / Math.max(d, 0.5)));
   if (lodStep(bodyLod, target(camera.position.distanceTo(bodyCenter)), max, dt)) {
     for (const s of SHELLS) if (s.material === bodyMat) s.count = bodyLod.n;
     bodyMat.uniforms.uLayers.value = bodyLod.n;
   }
+  const pmax = Math.min(max, pieceCap);
   for (const pc of pieces) {
     const st = pc.lod || (pc.lod = { n: 0, t: 0 });
     pc.mesh.getWorldPosition(_wp);
-    if (!lodStep(st, target(camera.position.distanceTo(_wp)), max, dt)) continue;
+    if (!lodStep(st, target(camera.position.distanceTo(_wp), pmax), pmax, dt)) continue;
     for (const s of pc.mesh.children) if (SHELLS.has(s)) { s.count = st.n; s.material.uniforms.uLayers.value = st.n; }
   }
 }
