@@ -108,10 +108,13 @@ const KEY = 'cloudhouse.quality.v1';
 function signature(gpu) {
   return `${gpu}|${screen.width}x${screen.height}|${Math.round(devicePixelRatio * 100)}`;
 }
+// a result is kept for 3 days: one taken while something else loaded the GPU
+// (a game, another heavy tab) does not hold the device down for good
+const KEEP_MS = 3 * 24 * 3600 * 1000;
 function loadSaved(gpu) {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (s && s.sig === signature(gpu) && PROFILES[s.tier]) return s;
+    if (s && s.sig === signature(gpu) && PROFILES[s.tier] && Date.now() - (s.t || 0) < KEEP_MS) return s;
   } catch { /* storage blocked */ }
   return null;
 }
