@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Cloud House</title>
+  <meta name="description" content="A house made of cloud. Press it, pull pieces away, open it, take it apart, change what it is made of." />
+  <meta name="theme-color" content="#f1ede7" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CradialGradient id='g' cx='.38' cy='.34' r='.7'%3E%3Cstop offset='0' stop-color='%23ffffff'/%3E%3Cstop offset='.6' stop-color='%23f1ede7'/%3E%3Cstop offset='1' stop-color='%23c9c6dc'/%3E%3C/radialGradient%3E%3C/defs%3E%3Cpath fill='url(%23g)' d='M9 24a6 6 0 0 1-.6-12 8 8 0 0 1 15.2-1.4A6.5 6.5 0 0 1 23.5 24z'/%3E%3C/svg%3E" />
+</head>
+<body data-scene="house" class="is-loading">
+  <canvas id="gl" role="img" aria-label="Cloud House — an interactive house made of cloud. Press it, pinch and pull pieces away, drag empty space to turn."></canvas>
+  <div class="veil" aria-hidden="true"></div>
+
+  <header class="top">
+    <h1 class="brand"><a class="mark" href="#" title="Back to the whole house">Cloud House</a></h1>
+    <div class="world-switch">
+      <button class="world-toggle" type="button" aria-expanded="false" aria-controls="worlds">
+        <i aria-hidden="true"></i><span class="vh">Made of </span><span class="world-toggle-l">Cloud</span>
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.6 6 7.6l3-3"/></svg>
+      </button>
+      <div class="worlds" id="worlds" role="group" aria-label="What the house is made of"></div>
+    </div>
+    <div class="top-end">
+      <div class="sound-wrap">
+        <button class="sound" type="button" aria-expanded="false" aria-controls="sound-pop" title="Sound">
+          <svg viewBox="0 0 20 16" aria-hidden="true"><path class="sound-body" d="M2.5 5.8h2.6L9 2.7v10.6L5.1 10.2H2.5z"/><path class="sound-wave" d="M12.2 5.4a3.6 3.6 0 0 1 0 5.2M14.6 3.2a6.8 6.8 0 0 1 0 9.6"/><path class="sound-off" d="M12.4 5.6l4.8 4.8m0-4.8-4.8 4.8"/></svg>
+          <span class="sound-l">Sound</span>
+        </button>
+        <div class="sound-pop" id="sound-pop" role="dialog" aria-label="Sound settings" hidden>
+          <div class="sp-head">
+            <p class="sp-title">Sound</p>
+            <button class="sp-power" type="button" role="switch" aria-checked="true" aria-label="Sound on"><i></i></button>
+          </div>
+          <div class="sp-rows">
+            <label class="sp-row"><span>Volume</span><input type="range" data-k="vol" min="0" max="100" step="1" value="50" /><output>50</output></label>
+            <label class="sp-row sp-row--eq"><span>Low</span><input type="range" data-k="low" min="-12" max="12" step="0.5" value="0" /><output>0 dB</output></label>
+            <label class="sp-row sp-row--eq"><span>Mid</span><input type="range" data-k="mid" min="-12" max="12" step="0.5" value="0" /><output>0 dB</output></label>
+            <label class="sp-row sp-row--eq"><span>High</span><input type="range" data-k="high" min="-12" max="12" step="0.5" value="0" /><output>0 dB</output></label>
+          </div>
+          <button class="sp-reset" type="button">Reset</button>
+        </div>
+      </div>
+      <p class="index"><span class="index-n">01</span><span class="index-of">/ 07</span><span class="index-name">House</span></p>
+    </div>
+  </header>
+
+  <!-- what a screen reader hears when the scene or the world changes: one short line, never every scene -->
+  <p class="vh" role="status" aria-live="polite" aria-atomic="true" id="sr-status"></p>
+
+  <div class="mist" aria-hidden="true"></div>
+  <div class="copies">
+    <div class="copy copy--lede" data-scene="house">
+      <p><em>A house made of weather.</em> Press it, pull pieces away, look inside.</p>
+    </div>
+    <div class="copy" data-scene="touch" aria-hidden="true" inert>
+      <h2>Soft to the <em>touch.</em></h2>
+      <p>Pinch anywhere and pull. The piece tears free and floats; the house keeps the hollow.</p>
+    </div>
+    <div class="copy copy--right" data-scene="inside" aria-hidden="true" inert>
+      <h2>Inside, the <br />light is <em>kept.</em></h2>
+      <p>The front layer lifts like an awning. Drag to look around.</p>
+    </div>
+    <div class="copy copy--right" data-scene="apart" aria-hidden="true" inert>
+      <h2>A house <br />that <em>drifts.</em></h2>
+      <p>Lift one layer, or let every part float. Reassemble brings it home.</p>
+    </div>
+    <div class="copy" data-scene="material" aria-hidden="true" inert>
+      <h2>Cloud, cream, <br /><em>sugar,</em> mist.</h2>
+      <p>Tap the house to change what it is made of.</p>
+    </div>
+    <div class="copy" data-scene="weather" aria-hidden="true" inert>
+      <h2>Colour arrives <br />like <em>weather.</em></h2>
+      <p>Pick a sky: the light and the air change with it.</p>
+    </div>
+    <div class="copy" data-scene="paint" aria-hidden="true" inert>
+      <h2>Pigment, <br />soaked <em>in.</em></h2>
+      <p>Paint the house, or any piece you pulled away. Each piece keeps its own colour.</p>
+    </div>
+  </div>
+
+  <div class="dock">
+    <div class="actions">
+      <button class="act act--view" type="button" tabindex="-1">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 8a4.8 4.8 0 1 0 1.5-3.5M3.2 2.6v2.6h2.6"/></svg>
+        <span>Reset view</span>
+      </button>
+      <button class="act act--reassemble" type="button" tabindex="-1">Reassemble</button>
+    </div>
+    <div class="ctx"></div>
+    <nav class="scenes" aria-label="Scenes"><span class="scenes-glide" aria-hidden="true"></span></nav>
+  </div>
+
+  <!-- shown only when the house cannot be drawn: a still of it and the way back -->
+  <div class="nogl" hidden>
+    <img class="nogl-img" src="/fallback.webp" width="1600" height="1000" loading="lazy" decoding="async"
+      alt="Cloud House: a soft cottage made of cloud, with an arched door and two windows, floating above its own shadow." />
+    <div class="nogl-text">
+      <p class="nogl-title" data-when="nogl">This house is drawn live, and this browser can’t draw it.</p>
+      <p class="nogl-title" data-when="error">The house didn’t finish building.</p>
+      <p data-when="nogl">Cloud House needs WebGL 2. Turn on hardware acceleration in the browser’s settings, or open the page in a current Chrome, Edge, Firefox or Safari.</p>
+      <p data-when="error">Reload the page to try again. If it happens again, the graphics driver may have stopped the drawing; a current Chrome, Edge, Firefox or Safari usually helps.</p>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

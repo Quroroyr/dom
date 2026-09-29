@@ -1,0 +1,541 @@
+:root {
+  --milk: #f1ede7;
+  --ink: #3d3833;
+  --ink-rgb: 61 56 51;
+  /* secondary words sit on the rendered floor and sky, not on the milk: this
+     keeps ≥4.5:1 on the darkest of them (the lede over the floor, the room) */
+  --ink-soft: #57504a;
+  --line: rgb(var(--ink-rgb) / 0.16);
+  --glass: rgb(255 255 255 / 0.42);
+  --glass-edge: rgb(255 255 255 / 0.62);
+  /* LOW quality: the same panels without a live blur over the canvas */
+  --glass-dense: rgb(250 248 245 / 0.9);
+  --lift: 0 1px 0 rgb(var(--ink-rgb) / 0.04), 0 12px 32px -14px rgb(var(--ink-rgb) / 0.22);
+  --display: 'Fraunces Variable', 'Iowan Old Style', Georgia, serif;
+  --ui: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --ease: cubic-bezier(0.22, 0.8, 0.24, 1);
+  --gutter: 36px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+/* evening dims the whole frame: the secondary words darken with it */
+[data-sky="evening"] { --ink-soft: #48423d; }
+* { box-sizing: border-box; }
+.vh { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--milk); color: var(--ink); overscroll-behavior: none; }
+body { font-family: var(--ui); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+button { font: inherit; color: inherit; }
+#gl { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; cursor: none; z-index: 1; }
+@media (pointer: coarse) { #gl { cursor: auto; } .cursor { display: none; } }
+
+.veil { position: fixed; inset: 0; background: var(--milk); pointer-events: none; z-index: 30; }
+
+/* ---------------------------------------------------------------- header */
+.top {
+  position: fixed; inset: 0 0 auto 0; display: flex; justify-content: space-between; align-items: baseline;
+  padding: calc(28px + var(--safe-t)) var(--gutter) 0; pointer-events: none; z-index: 10;
+}
+.brand { margin: 0; font: inherit; pointer-events: auto; }
+.mark {
+  font-family: var(--display); font-variation-settings: 'SOFT' 100, 'WONK' 0, 'opsz' 48; font-weight: 380;
+  font-size: 19px; letter-spacing: -0.01em; color: var(--ink); text-decoration: none; pointer-events: auto;
+}
+.mark:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+.index { margin: 0; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); display: flex; gap: 8px; }
+.index-n { color: var(--ink); font-variant-numeric: tabular-nums; }
+.index-of { font-variant-numeric: tabular-nums; margin-right: 6px; }
+.top-end { display: flex; align-items: baseline; gap: 22px; }
+
+/* sound: a quiet switch beside the index */
+.sound {
+  display: flex; align-items: center; gap: 7px; border: 0; background: none; cursor: pointer; pointer-events: auto;
+  margin: -8px -8px; padding: 8px 8px; border-radius: 999px; color: var(--ink-soft);
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; transition: color 0.4s;
+}
+.sound svg { width: 17px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.sound-body { fill: currentColor; fill-opacity: 0.18; }
+.sound-wave { transition: opacity 0.35s, transform 0.45s var(--ease); transform-origin: 9px 8px; }
+.sound-off { opacity: 0; transition: opacity 0.3s; }
+.sound.is-off .sound-wave { opacity: 0; transform: scale(0.6); }
+.sound.is-off .sound-off { opacity: 1; }
+.sound.is-off .sound-l { text-decoration: line-through; text-decoration-thickness: 1px; }
+.sound:hover, .sound[aria-expanded="true"] { color: var(--ink); }
+.sound:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+
+/* the sound panel: volume and three bands, nothing more */
+.sound-wrap { position: relative; display: flex; }
+.sound-pop {
+  position: absolute; top: calc(100% + 14px); right: -14px; width: 282px; padding: 12px 16px 14px;
+  border-radius: 20px; background: rgb(255 255 255 / 0.66); border: 1px solid var(--glass-edge); box-shadow: var(--lift);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  pointer-events: auto; color: var(--ink); text-shadow: none; z-index: 12;
+  animation: rise 0.45s var(--ease) both;
+}
+.sound-pop[hidden] { display: none; }
+.sp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.sp-title {
+  margin: 0; font-family: var(--display); font-style: italic; font-weight: 340;
+  font-variation-settings: 'SOFT' 100, 'WONK' 1, 'opsz' 24; font-size: 17px;
+}
+.sp-power {
+  position: relative; width: 34px; height: 20px; border: 0; border-radius: 999px; padding: 0; cursor: pointer;
+  background: rgb(var(--ink-rgb) / 0.2); transition: background 0.3s;
+}
+.sp-power i {
+  position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2px rgb(var(--ink-rgb) / 0.25); transition: transform 0.35s var(--ease);
+}
+.sp-power[aria-checked="true"] { background: var(--ink); }
+.sp-power[aria-checked="true"] i { transform: translateX(14px); }
+.sp-power:focus-visible, .sp-reset:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.sp-rows { display: grid; gap: 4px; transition: opacity 0.3s; }
+.sound-pop.is-off .sp-rows { opacity: 0.4; }
+.sp-row {
+  display: grid; grid-template-columns: 62px 1fr 46px; align-items: center; gap: 10px; cursor: pointer;
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft);
+}
+.sp-row:first-child { padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.sp-row output { text-align: right; font-size: 11px; letter-spacing: 0.02em; text-transform: none; font-variant-numeric: tabular-nums; color: var(--ink); }
+.sp-row input {
+  --a: 0%; --b: 50%;
+  -webkit-appearance: none; appearance: none; width: 100%; height: 22px; margin: 0; background: transparent; cursor: pointer;
+}
+.sp-row input::-webkit-slider-runnable-track {
+  height: 2px; border-radius: 2px;
+  background: linear-gradient(to right, rgb(var(--ink-rgb) / 0.18) var(--a), var(--ink) var(--a), var(--ink) var(--b), rgb(var(--ink-rgb) / 0.18) var(--b));
+}
+.sp-row input::-moz-range-track {
+  height: 2px; border-radius: 2px;
+  background: linear-gradient(to right, rgb(var(--ink-rgb) / 0.18) var(--a), var(--ink) var(--a), var(--ink) var(--b), rgb(var(--ink-rgb) / 0.18) var(--b));
+}
+.sp-row input::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; margin-top: -6px; border-radius: 50%;
+  background: #fff; border: 1px solid rgb(var(--ink-rgb) / 0.35); box-shadow: 0 1px 3px rgb(var(--ink-rgb) / 0.2);
+}
+.sp-row input::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 1px solid rgb(var(--ink-rgb) / 0.35); }
+.sp-row input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+.sp-reset {
+  display: block; margin: 10px 0 0 auto; padding: 6px 13px; border-radius: 999px; cursor: pointer;
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft);
+  background: rgb(255 255 255 / 0.55); border: 1px solid var(--line); transition: color 0.3s, background 0.3s;
+}
+.sp-reset:hover { color: var(--ink); background: #fff; }
+
+/* material worlds: what the house is made of. Wide screens: a segmented pill
+   in the middle of the header. Narrow or short screens: one button naming the
+   current world, and the worlds as a list under it (any number of them). */
+.world-switch {
+  position: absolute; left: 50%; top: calc(19px + var(--safe-t)); transform: translateX(-50%);
+  pointer-events: auto;
+}
+.worlds {
+  display: flex; gap: 2px; padding: 4px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--lift);
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+}
+.world-toggle { display: none; }
+.world-btn {
+  display: flex; align-items: center; gap: 7px; border: 0; background: none; cursor: pointer;
+  padding: 6px 13px 6px 7px; border-radius: 999px; color: var(--ink-soft);
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; transition: background 0.4s var(--ease), color 0.4s;
+}
+.world-btn i { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(var(--ink-rgb) / 0.16); transition: transform 0.5s var(--ease); }
+.world-btn:hover { color: var(--ink); }
+.world-btn.is-on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgb(var(--ink-rgb) / 0.1); }
+.world-btn.is-on i { transform: scale(1.12); }
+.world-btn.is-loading i, .world-toggle.is-loading i { animation: grow 0.9s ease-in-out infinite alternate; }
+@keyframes grow { from { transform: scale(0.7); opacity: 0.5; } to { transform: scale(1.15); opacity: 1; } }
+.world-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+
+@media (max-width: 999px), (max-height: 520px) {
+  .world-switch { position: relative; left: auto; top: auto; transform: none; margin-left: auto; align-self: center; }
+  .top-end { margin-left: 22px; }
+  .world-toggle {
+    display: flex; align-items: center; gap: 7px; cursor: pointer; border-radius: 999px;
+    padding: 7px 11px 7px 8px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink);
+    background: var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--lift);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  }
+  .world-toggle i { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(var(--ink-rgb) / 0.16); }
+  .world-toggle svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.4s var(--ease); }
+  .world-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+  .world-toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .worlds {
+    display: none; position: absolute; top: calc(100% + 10px); right: 0; z-index: 12;
+    flex-direction: column; gap: 2px; min-width: 188px; padding: 6px; border-radius: 20px;
+    max-height: calc(100dvh - 190px); overflow-y: auto; overscroll-behavior: contain;
+    background: rgb(255 255 255 / 0.7);
+  }
+  .worlds-open .worlds { display: flex; animation: rise 0.45s var(--ease) both; }
+  .worlds .world-btn { min-height: 44px; padding: 0 16px 0 12px; gap: 10px; border-radius: 14px; }
+}
+
+/* ---------------------------------------------------------------- scene copy */
+/* words focus out of blur, like thoughts */
+.copies { position: fixed; inset: 0; pointer-events: none; z-index: 8; }
+.copy {
+  position: absolute; left: var(--gutter); top: 50%; transform: translateY(-44%); max-width: 30rem;
+  opacity: 0; filter: blur(12px); transition: opacity 0.8s var(--ease), filter 1s var(--ease), transform 1.1s var(--ease);
+}
+.copy.is-active { opacity: 1; filter: blur(0); transform: translateY(-50%); }
+.copy--right { left: auto; right: var(--gutter); text-align: right; }
+.copy h2 {
+  margin: 0; font-family: var(--display); font-weight: 300; font-size: clamp(40px, min(5vw, 9.5vh), 124px); line-height: 0.95;
+  letter-spacing: -0.035em; font-variation-settings: 'SOFT' 100, 'WONK' 0, 'opsz' 144; color: var(--ink);
+}
+.copy h2 em { font-style: italic; font-variation-settings: 'SOFT' 100, 'WONK' 1, 'opsz' 144; }
+.copy p { margin: 18px 0 0; font-size: 14px; line-height: 1.5; color: var(--ink-soft); max-width: 21rem; }
+.copy--right p { margin-left: auto; }
+.copy--lede { top: auto; bottom: calc(34px + var(--safe-b)); transform: translateY(6px); max-width: 21rem; }
+.copy--lede.is-active { transform: none; }
+.copy--lede p {
+  margin: 0; font-family: var(--display); font-variation-settings: 'SOFT' 100, 'opsz' 24; font-weight: 340;
+  font-size: 17px; line-height: 1.4; color: var(--ink-soft);
+}
+.copy--lede em { font-style: italic; color: var(--ink); }
+
+/* ---------------------------------------------------------------- dock */
+.dock {
+  position: fixed; left: 0; right: 0; bottom: calc(26px + var(--safe-b)); z-index: 10;
+  display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none;
+}
+.dock > * { pointer-events: auto; }
+.is-loading .dock, .is-loading .top, .is-loading .copies { opacity: 0; }
+.dock, .top, .copies { transition: opacity 1.2s var(--ease); }
+
+/* scene rail: an editorial pill, the active scene on a white stone */
+.scenes {
+  position: relative; display: flex; gap: 2px; padding: 5px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--lift);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25); backdrop-filter: blur(18px) saturate(1.25);
+}
+.scenes-glide {
+  position: absolute; left: 0; top: 5px; bottom: 5px; width: 0; border-radius: 999px; background: #fff;
+  box-shadow: 0 1px 2px rgb(var(--ink-rgb) / 0.1), 0 6px 16px -8px rgb(var(--ink-rgb) / 0.28);
+  transition: transform 0.65s var(--ease), width 0.65s var(--ease);
+}
+.scene-btn {
+  position: relative; z-index: 1; display: flex; align-items: baseline; gap: 8px; border: 0; background: none;
+  padding: 10px 17px; border-radius: 999px; cursor: pointer; color: var(--ink-soft);
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; transition: color 0.4s var(--ease);
+}
+/* the number is the key that opens the scene (1–7): kept, and readable */
+.scene-n { font-size: 11px; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+.scene-btn:hover, .scene-btn.is-on { color: var(--ink); }
+.scene-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.is-busy .scene-btn.is-on .scene-n { animation: breathe 1s ease-in-out infinite alternate; }
+@keyframes breathe { from { opacity: 0.35; } to { opacity: 1; } }
+
+/* variants of the current scene */
+.ctx { display: flex; justify-content: center; min-height: 0; }
+.ctx-panel {
+  display: none; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 999px;
+  background: rgb(255 255 255 / 0.3); border: 1px solid rgb(255 255 255 / 0.5);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+}
+.ctx-panel.is-on { display: flex; animation: rise 0.7s var(--ease) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.ctx-step {
+  width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 50%; background: none;
+  cursor: pointer; color: var(--ink-soft); transition: background 0.3s, color 0.3s;
+}
+.ctx-step svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.ctx-step:hover { background: rgb(255 255 255 / 0.75); color: var(--ink); }
+.ctx-options { display: flex; gap: 4px; align-items: center; }
+.opt { border: 0; background: none; cursor: pointer; padding: 0; }
+.ctx-panel--swatch .opt { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; }
+.opt i {
+  width: 20px; height: 20px; border-radius: 50%; display: block;
+  box-shadow: inset 0 0 0 1px rgb(var(--ink-rgb) / 0.14), 0 1px 3px rgb(var(--ink-rgb) / 0.12); transition: transform 0.5s var(--ease), box-shadow 0.4s;
+}
+.opt:hover i { transform: scale(1.1); }
+.opt.is-on i { transform: scale(1.2); box-shadow: inset 0 0 0 1px rgb(var(--ink-rgb) / 0.3), 0 0 0 3px rgba(255, 255, 255, 0.9); }
+.ctx-panel--text .opt {
+  padding: 8px 15px; border-radius: 999px; color: var(--ink-soft);
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; transition: background 0.35s, color 0.35s;
+}
+.ctx-panel--text .opt:hover { color: var(--ink); }
+.ctx-panel--text .opt.is-on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgb(var(--ink-rgb) / 0.1); }
+.opt:focus-visible, .ctx-step:focus-visible, .brush:focus-visible, .act:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ctx-name {
+  margin: 0 8px 0 2px; min-width: 7.6em; font-family: var(--display); font-style: italic; font-weight: 340;
+  font-variation-settings: 'SOFT' 100, 'WONK' 1, 'opsz' 24; font-size: 15px; color: var(--ink); white-space: nowrap;
+}
+.brush {
+  margin-left: 2px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
+  background: rgb(255 255 255 / 0.55); border: 1px solid var(--line); border-radius: 999px; padding: 8px 13px;
+  transition: background 0.3s, color 0.3s;
+}
+.brush.is-on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.brush--clear { background: none; }
+.brush:disabled { opacity: 0.35; cursor: default; }
+
+/* the paint panel: its own palette and a few quiet controls */
+.ctx-panel--paint { gap: 14px; padding: 6px 14px 6px 10px; border-radius: 24px; }
+.paint-colors { display: flex; gap: 1px; }
+.paint-swatch { width: 26px; height: 30px; display: grid; place-items: center; border-radius: 50%; }
+.paint-swatch i { width: 18px; height: 18px; }
+.is-erasing .paint-swatch.is-on i { transform: none; opacity: 0.55; box-shadow: inset 0 0 0 1px rgb(var(--ink-rgb) / 0.14); }
+.paint-name { min-width: 6.6em; margin: 0; }
+/* the turf world's wildflower brush: a swatch of three small blooms */
+.paint-swatch--flowers { display: none; }
+[data-world="grass"] .paint-swatch--flowers { display: grid; }
+.paint-swatch--flowers svg { width: 20px; height: 20px; border-radius: 50%; background: #dfe6cf; box-shadow: inset 0 0 0 1px rgb(var(--ink-rgb) / 0.14), 0 1px 3px rgb(var(--ink-rgb) / 0.12); transition: transform 0.5s var(--ease), box-shadow 0.4s; }
+.paint-swatch--flowers:hover svg { transform: scale(1.1); }
+.paint-swatch--flowers.is-on svg { transform: scale(1.2); box-shadow: inset 0 0 0 1px rgb(var(--ink-rgb) / 0.3), 0 0 0 3px rgba(255, 255, 255, 0.9); }
+.paint-sliders { display: flex; gap: 12px; }
+.pslider { display: flex; flex-direction: column; gap: 2px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); cursor: pointer; }
+.pslider input { -webkit-appearance: none; appearance: none; width: 76px; height: 14px; margin: 0; background: transparent; cursor: pointer; }
+.pslider input::-webkit-slider-runnable-track { height: 2px; background: rgb(var(--ink-rgb) / 0.22); border-radius: 2px; }
+.pslider input::-moz-range-track { height: 2px; background: rgb(var(--ink-rgb) / 0.22); border-radius: 2px; }
+.pslider input::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -5px; border-radius: 50%; background: #fff; border: 1px solid rgb(var(--ink-rgb) / 0.35); box-shadow: 0 1px 3px rgb(var(--ink-rgb) / 0.2); }
+.pslider input::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 1px solid rgb(var(--ink-rgb) / 0.35); }
+.pslider input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+.paint-actions { display: flex; gap: 6px; }
+.brush[hidden] { display: none; }
+
+.swatch--cloud i { background: radial-gradient(circle at 35% 30%, #ffffff, #f4f1f6 45%, #c9cde0); }
+.swatch--whip i { background: radial-gradient(circle at 30% 26%, #ffffff 0 20%, #fbf3e6 50%, #e9dccb); }
+.swatch--candy i { background: radial-gradient(circle at 35% 30%, #fff5f9, #f7d9e6 55%, #e8c0d6); }
+.swatch--mist i { background: radial-gradient(circle at 40% 35%, rgba(255,255,255,0.95), rgba(226,234,245,0.8) 60%, #c9d6e6); }
+
+/* contextual actions: only when they mean something */
+.actions { position: absolute; right: var(--gutter); bottom: 0; display: flex; gap: 8px; pointer-events: none; }
+.act {
+  display: inline-flex; align-items: center; gap: 7px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  background: rgb(255 255 255 / 0.55); border: 1px solid var(--line); border-radius: 999px; padding: 10px 15px; cursor: pointer;
+  opacity: 0; transform: translateY(6px); pointer-events: none; visibility: hidden;
+  transition: opacity 0.5s var(--ease), transform 0.6s var(--ease), background 0.3s, visibility 0s linear 0.5s;
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.act.is-on { opacity: 1; transform: none; pointer-events: auto; visibility: visible; transition: opacity 0.5s var(--ease), transform 0.6s var(--ease), background 0.3s, visibility 0s; }
+.act:hover { background: #fff; }
+.act--reassemble { background: var(--ink); color: #fff; border-color: var(--ink); }
+.act--reassemble:hover { background: #26221f; }
+.act svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------------------------------------------------------------- cursor */
+.cursor { position: fixed; left: 0; top: 0; z-index: 20; pointer-events: none; }
+.cursor-ring {
+  position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 50%;
+  border: 1px solid rgb(var(--ink-rgb) / 0.55); background: rgba(255, 255, 255, 0.25);
+  transition: transform 0.45s var(--ease), background 0.3s, border-color 0.3s;
+}
+.cursor.is-over .cursor-ring { transform: scale(2.3); background: rgba(255, 255, 255, 0.35); border-color: rgb(var(--ink-rgb) / 0.35); }
+.cursor.is-active .cursor-ring { transform: scale(1.6); background: rgba(255, 255, 255, 0.6); }
+.cursor-label {
+  position: absolute; left: 26px; top: -7px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink); opacity: 0; transform: translateX(-4px); transition: opacity 0.35s, transform 0.45s var(--ease); white-space: nowrap;
+}
+.cursor.is-over .cursor-label, .cursor.is-flash .cursor-label { opacity: 0.8; transform: none; }
+/* over the UI the system pointer is back */
+.dock:hover ~ .cursor, .top:hover ~ .cursor { opacity: 0; }
+.dock, .top a { cursor: auto; }
+
+/* ---------------------------------------------------------------- sizes */
+/* laptops: the rail tightens so nothing crowds the lede */
+@media (max-width: 1280px) {
+  .scene-btn { padding: 10px 13px; }
+}
+/* large displays: the interface grows a little with the frame */
+@media (min-width: 2000px) {
+  :root { --gutter: 52px; }
+  .mark { font-size: 22px; }
+  .index, .sound, .scene-btn, .ctx-panel--text .opt { font-size: 12.5px; }
+  .scene-btn { padding: 12px 22px; }
+  .copy { max-width: 40rem; }
+  .copy p { font-size: 16px; max-width: 25rem; }
+  .copy--lede p { font-size: 20px; }
+  .ctx-panel--swatch .opt { width: 36px; height: 36px; }
+  .opt i { width: 24px; height: 24px; }
+  .ctx-name { font-size: 17px; }
+  .act { font-size: 12px; padding: 12px 18px; }
+}
+
+/* phones: copy on top, the house in the middle, controls under the thumb */
+@media (max-width: 700px) {
+  :root { --gutter: 16px; }
+  .top { padding-top: calc(16px + var(--safe-t)); }
+  .mark { font-size: 18px; }
+  .index { display: none; }
+  .top { align-items: center; }
+  .top-end { align-items: center; margin-left: 2px; }
+  .sound { margin: 0 -10px 0 0; width: 44px; height: 44px; justify-content: center; padding: 0; }
+  .sound-l { display: none; }
+  /* under the header, clear of both screen edges; thumb-sized handles */
+  .sound-pop { position: fixed; top: calc(64px + var(--safe-t)); right: 12px; width: min(300px, calc(100vw - 24px)); padding: 12px 16px 14px; }
+  .sp-row { grid-template-columns: 64px 1fr 46px; }
+  .sp-row input { height: 44px; margin: -5px 0; }
+  .sp-row input::-webkit-slider-thumb { width: 20px; height: 20px; margin-top: -9px; }
+  .sp-row input::-moz-range-thumb { width: 20px; height: 20px; }
+  .sp-power { width: 40px; height: 24px; }
+  .sp-power i { width: 18px; height: 18px; }
+  .sp-power[aria-checked="true"] i { transform: translateX(16px); }
+  .sp-reset { padding: 10px 16px; }
+  .copy, .copy--right, .copy--lede {
+    left: var(--gutter); right: var(--gutter); top: calc(58px + var(--safe-t)); bottom: auto;
+    max-width: none; text-align: left; transform: translateY(-6px);
+  }
+  .copy.is-active { transform: none; }
+  .copy h2 { font-size: 31px; line-height: 1; letter-spacing: -0.03em; }
+  .copy h2 br { display: none; }
+  .copy p, .copy--right p { margin: 8px 0 0; font-size: 13.5px; line-height: 1.45; max-width: 24rem; }
+  .copy--lede p { margin: 0; font-size: 16px; }
+
+  .dock { bottom: calc(10px + var(--safe-b)); left: 10px; right: 10px; gap: 8px; }
+  .scenes { width: 100%; padding: 4px; gap: 0; }
+  .scene-btn {
+    flex: 1 1 0; justify-content: center; align-items: center; min-height: 44px; padding: 0 2px;
+    font-size: 12px; letter-spacing: 0; text-transform: none;
+  }
+  .scene-n { display: none; }
+  .scenes-glide { top: 4px; bottom: 4px; }
+  .ctx { width: 100%; }
+  .ctx-panel { max-width: 100%; gap: 2px; padding: 4px 6px; }
+  .ctx-panel--swatch .ctx-step, .ctx-name { display: none; }
+  /* thumb-sized: the dots stay small, the buttons around them are 44px */
+  .ctx-panel--swatch .opt { width: 44px; height: 44px; margin: -2px 0; }
+  .ctx-panel--text .opt { padding: 11px 18px; font-size: 11px; }
+  .ctx-panel--text .ctx-step { width: 40px; height: 40px; }
+  .ctx-panel--paint { flex-wrap: wrap; justify-content: center; row-gap: 6px; padding: 8px 10px; border-radius: 22px; }
+  .paint-colors { display: grid; grid-template-columns: repeat(6, 44px); gap: 0; }
+  [data-world="grass"] .paint-colors { grid-template-columns: repeat(7, 44px); }
+  .paint-swatch { width: 44px; height: 44px; }
+  .paint-swatch i { width: 20px; height: 20px; }
+  .paint-name { display: none; }
+  .paint-sliders { width: 100%; gap: 10px; }
+  .pslider { flex: 1 1 0; }
+  .pslider input { width: 100%; height: 44px; margin: -11px 0; }
+  .paint-actions { width: 100%; justify-content: center; }
+  .paint-actions .brush { padding: 10px 14px; }
+  .ctx-panel[data-for="weather"] { flex-wrap: wrap; justify-content: center; border-radius: 24px; row-gap: 4px; }
+  /* above the dock, over the canvas, only while they are shown */
+  .actions { right: 0; bottom: calc(100% + 8px); }
+  .act { padding: 11px 15px; }
+}
+@media (max-width: 370px) {
+  .scene-btn { font-size: 11.5px; }
+  .brush { padding: 8px 10px; letter-spacing: 0.08em; }
+}
+
+/* touch: every control answers a 44px thumb, whatever it looks like */
+@media (pointer: coarse), (max-width: 700px) {
+  .mark, .world-toggle, .brush, .act, .sp-power, .sp-reset, .ctx-step, .opt, .scene-btn, .sound { position: relative; }
+  .mark::after, .world-toggle::after, .brush::after, .act::after, .sp-power::after, .sp-reset::after,
+  .ctx-step::after, .opt::after, .scene-btn::after, .sound::after {
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%);
+  }
+  /* dots sit side by side: their buttons widen rather than overlap */
+  .ctx-panel--swatch .opt, .paint-swatch { width: 44px; }
+}
+/* a phone on its side (desktop layout, short screen): sliders get thumb height
+   without moving the rows around them */
+@media (pointer: coarse) and (min-width: 701px) {
+  .pslider input { height: 44px; margin: -15px 0; }
+  .sp-row input { height: 44px; margin: -11px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copy, .act, .scenes-glide, .ctx-panel.is-on { transition: opacity 0.2s; animation: none; }
+  .copy { filter: none !important; }
+  .sound-pop, .worlds-open .worlds { animation: none; }
+  .world-toggle svg, .sound-wave, .opt i, .paint-swatch--flowers svg, .world-btn i, .sp-power i, .cursor-ring, .cursor-label { transition: none; }
+  .world-btn.is-loading i, .world-toggle.is-loading i { animation: fade 0.9s ease-in-out infinite alternate; }
+}
+@keyframes fade { from { opacity: 0.4; } to { opacity: 1; } }
+/* a reduced-motion scene change is a short fade through the sky, under the
+   controls: the header and the dock stay put and show where you are */
+.veil.is-cut { z-index: 9; }
+
+/* LOW quality (phones, small screens, ?low): no live blur over the canvas —
+   the same panels, filled instead of frosted */
+.is-low .worlds, .is-low .world-toggle, .is-low .scenes, .is-low .ctx-panel, .is-low .act,
+.is-low .sound-pop {
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.is-low .worlds, .is-low .world-toggle, .is-low .scenes, .is-low .ctx-panel, .is-low .sound-pop,
+.is-low .act:not(.act--reassemble) { background: var(--glass-dense); }
+
+/* the house cannot be drawn: a still of it, and what to do */
+.nogl {
+  position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; align-content: center; gap: 18px;
+  padding: calc(76px + var(--safe-t)) var(--gutter) calc(32px + var(--safe-b)); background: var(--milk); overflow-y: auto;
+}
+.nogl[hidden] { display: none; }
+.nogl-img {
+  display: block; width: min(100%, 980px); height: auto; max-height: 58vh; object-fit: contain;
+  /* the still's own sky fades into the page's */
+  -webkit-mask-image: radial-gradient(closest-side, #000 60%, transparent);
+  mask-image: radial-gradient(closest-side, #000 60%, transparent);
+}
+.nogl-text { max-width: 34rem; text-align: center; }
+.nogl-text p { margin: 0 0 8px; font-size: 15px; line-height: 1.5; color: var(--ink-soft); }
+.nogl-text .nogl-title {
+  margin-bottom: 10px; font-family: var(--display); font-weight: 340; font-size: clamp(22px, 3vw, 30px); line-height: 1.3;
+  font-variation-settings: 'SOFT' 100, 'WONK' 0, 'opsz' 48; color: var(--ink); text-wrap: balance;
+}
+.nogl [data-when] { display: none; }
+[data-fail="nogl"] .nogl [data-when="nogl"], [data-fail="error"] .nogl [data-when="error"] { display: block; }
+[data-fail] #gl, [data-fail] .veil, [data-fail] .copies, [data-fail] .dock, [data-fail] .world-switch,
+[data-fail] .top-end, [data-fail] .cursor { display: none; }
+[data-fail] .top { z-index: 41; }
+
+/* laptops: the bottom-left lede would run under the centred scene rail —
+   it sits above the rail instead */
+@media (min-width: 701px) and (max-width: 1540px) {
+  .copy--lede { bottom: calc(96px + var(--safe-b)); }
+}
+/* short landscape screens (phones on their side): the paint panel wraps into
+   two compact rows, the copy gets smaller and keeps clear of the dock */
+@media (min-width: 701px) and (max-height: 520px) {
+  .ctx { max-width: calc(100vw - 20px); }
+  .ctx-panel--paint { flex-wrap: wrap; justify-content: center; row-gap: 2px; column-gap: 12px; padding: 4px 10px; border-radius: 18px; max-width: 100%; }
+  .paint-name { display: none; }
+  .paint-swatch { width: 26px; height: 28px; }
+  .pslider input { width: 64px; }
+  .paint-actions { width: 100%; justify-content: center; }
+  .paint-actions .brush { padding: 6px 12px; }
+  .copy h2 { font-size: 30px; }
+  .copy p { margin-top: 8px; font-size: 12.5px; max-width: 17rem; }
+  .copy { top: 38%; }
+  .copy--lede { bottom: auto; top: calc(64px + var(--safe-t)); }
+  .dock { gap: 6px; bottom: calc(8px + var(--safe-b)); }
+  .scene-btn { padding: 8px 12px; }
+}
+
+/* inside the cloud room the words and the header lie over its shaded walls:
+   a little of the sky's mist hangs under them (not in the turf house, whose
+   words turn light instead). Phones: a band from the top, under the header
+   and the words; wider screens: the header band and a patch round the words. */
+.mist {
+  position: fixed; inset: 0 0 auto 0; height: calc(250px + var(--safe-t)); z-index: 7; pointer-events: none;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--milk) 86%, transparent) 55%, transparent);
+  opacity: 0; transition: opacity 0.8s var(--ease);
+}
+body[data-scene="inside"]:not([data-world="grass"]) .mist { opacity: 1; }
+@media (min-width: 701px) {
+  .mist {
+    /* eased, so it reads as air thinning out rather than a strip */
+    --band: linear-gradient(to bottom,
+      color-mix(in srgb, var(--milk) 84%, transparent) calc(40px + var(--safe-t)),
+      color-mix(in srgb, var(--milk) 62%, transparent) calc(80px + var(--safe-t)),
+      color-mix(in srgb, var(--milk) 30%, transparent) calc(125px + var(--safe-t)),
+      color-mix(in srgb, var(--milk) 10%, transparent) calc(165px + var(--safe-t)),
+      transparent calc(200px + var(--safe-t)));
+    inset: 0; height: auto;
+    background: var(--band), radial-gradient(ellipse 34% 40% at 83% 50%, color-mix(in srgb, var(--milk) 88%, transparent) 48%, transparent 100%);
+  }
+}
+@media (min-width: 701px) and (max-height: 520px) {
+  /* a phone on its side: the words sit higher and take more of the width */
+  .mist { background: var(--band), radial-gradient(ellipse 40% 42% at 84% 44%, color-mix(in srgb, var(--milk) 88%, transparent) 50%, transparent 100%); }
+}
+
+/* inside the turf house the room is dark earth: the words turn light */
+[data-world="grass"][data-scene="inside"] .copy h2,
+[data-world="grass"][data-scene="inside"] .copy h2 em { color: #f7f1e4; text-shadow: 0 1px 2px rgb(40 28 18 / 0.45), 0 0 18px rgb(40 28 18 / 0.35); }
+[data-world="grass"][data-scene="inside"] .copy p { color: #eadfcb; text-shadow: 0 1px 2px rgb(40 28 18 / 0.6), 0 0 12px rgb(40 28 18 / 0.45); }
+[data-world="grass"][data-scene="inside"] .mark,
+[data-world="grass"][data-scene="inside"] .index,
+[data-world="grass"][data-scene="inside"] .sound { color: #f7f1e4; text-shadow: 0 1px 2px rgb(40 28 18 / 0.5); }
