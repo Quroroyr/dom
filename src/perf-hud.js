@@ -34,13 +34,17 @@ async function measure(ch, sec) {
   return { med: q(iv, 0.5), p95: q(iv, 0.95), cpu: q(cpu, 0.5), gpu: q(gpu, 0.5), calls, tris };
 }
 
+// → ms until the world is active (loaded and switched to); the material
+// wave that follows (~4 s by design) is waited for but not counted
 async function toWorld(ch, id) {
-  if (ch.worlds.active?.id === id) return;
+  if (ch.worlds.active?.id === id) return 0;
   const t0 = performance.now();
   document.querySelector(`[data-world="${id}"]`)?.click();
-  while (ch.worlds.active?.id !== id && performance.now() - t0 < 30000) await wait(30);
+  while (ch.worlds.active?.id !== id && performance.now() - t0 < 30000) await wait(10);
+  const ms = performance.now() - t0;
   while (ch.house.body.morph && performance.now() - t0 < 30000) await wait(50);
   await wait(900);
+  return ms;
 }
 
 // tear n outer clumps that face the camera (the same motion a hand makes)
@@ -95,10 +99,9 @@ async function benchTier(ch, tier, log) {
   let gap = 0, lastT = performance.now(), on = true;
   const watch = () => { const n = performance.now(); gap = Math.max(gap, n - lastT); lastT = n; if (on) requestAnimationFrame(watch); };
   requestAnimationFrame(watch);
-  const tg = performance.now();
-  await toWorld(ch, 'grass');
+  const activeMs = await toWorld(ch, 'grass');
   on = false;
-  if (cold) out.push(`  Grass first activation: ${Math.round(performance.now() - tg - 900)} ms to active, longest frame ${Math.round(gap)} ms`);
+  if (cold) out.push(`  Grass first activation: ${Math.round(activeMs)} ms until it is on (then the ~4 s material wave), longest frame ${Math.round(gap)} ms`);
   log(`${ch.quality.tier}: grass`);
   const g = await measure(ch, 3);
   const fz = ch.fuzzLodState();
