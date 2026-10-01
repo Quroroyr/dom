@@ -67,3 +67,7 @@ npm run dev
 сайт и откроет готовую версию на http://127.0.0.1:5201.
 
 Нужен браузер с WebGL 2 (свежий Chrome, Edge или Firefox).
+
+## Автор
+
+[Quroroyr](https://github.com/Quroroyr)
